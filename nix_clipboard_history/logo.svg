@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title description">
+  <title id="title">Clipboard History mark</title>
+  <desc id="description">A periwinkle clipboard and stacked page joined by a mint rewind arrow, on a transparent background.</desc>
+  <defs>
+    <mask id="history-space" maskUnits="userSpaceOnUse" x="0" y="0" width="128" height="128">
+      <rect width="128" height="128" fill="white"/>
+      <circle cx="83" cy="83" r="27" fill="black"/>
+    </mask>
+  </defs>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g mask="url(#history-space)">
+      <path d="M27 48v45c0 8 5 13 13 13h30" stroke="#7489CB" stroke-width="7"/>
+      <path d="M46 32h-1c-6 0-10 4-10 10v43c0 7 4 11 11 11h39c7 0 11-4 11-11V42c0-6-4-10-10-10h-1" stroke="#BAC9FF" stroke-width="8"/>
+      <path d="M51 53h28M51 67h13" stroke="#BAC9FF" stroke-width="7"/>
+    </g>
+    <rect x="47" y="23" width="36" height="17" rx="7" fill="#BAC9FF"/>
+    <path d="M63 83a20 20 0 1 0 20-20c-7 0-13 3-17 8" stroke="#72E1CB" stroke-width="7"/>
+    <path d="M65 60v12h12" stroke="#72E1CB" stroke-width="7"/>
+    <path d="M83 74v10l7 4" stroke="#72E1CB" stroke-width="6"/>
+  </g>
+</svg>
