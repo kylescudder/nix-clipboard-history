@@ -335,7 +335,7 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
             root.append(footer)
             action = "Paste" if self.paste_on_select else "Copy"
             hints = label(
-                f"↑ ↓  Navigate     ↵  {action}     Ctrl ↵  Copy     "
+                f"← →  Categories     ↑ ↓  Items     ↵  {action}     Ctrl ↵  Copy     "
                 "Ctrl P  Pin     Alt 1–9  Quick select",
                 "shortcuts",
             )
@@ -668,6 +668,12 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
                     self.close()
             elif key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
                 self.pending_activation = (key, ctrl)
+            elif key in (Gdk.KEY_Left, Gdk.KEY_Right) and not (
+                state & Gtk.accelerator_get_default_mod_mask()
+            ):
+                index = next(i for i, tab in enumerate(self.tabs) if tab.get_active())
+                index = (index + (1 if key == Gdk.KEY_Right else -1)) % len(self.tabs)
+                self.tabs[index].set_active(True)
             elif key in (Gdk.KEY_Down, Gdk.KEY_Up):
                 if self.rows:
                     row = self.listbox.get_selected_row()
