@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Clipboard History
+Comment=Search and paste your recent clipboard items
+Exec=nix-clipboard-history show
+Icon=io.github.kylescudder.NixClipboardHistory
+Terminal=false
+Type=Application
+Categories=Utility;
+Keywords=clipboard;history;paste;hyprland;
+StartupNotify=false
