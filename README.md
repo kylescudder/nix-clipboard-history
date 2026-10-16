@@ -159,7 +159,7 @@ shortcut above, and launch `nix-clipboard-history daemon` once at session start.
 - **Alt+1…9**: paste one of the first nine visible items.
 - **Ctrl+P**: pin or unpin; **Ctrl+Backspace** / **Ctrl+Delete**: delete the item.
 - **Ctrl+1…4**: select All, Text & links, Images, or Pinned.
-- **Ctrl+F**: focus search; **Esc**: close.
+- **Ctrl+F**: focus search; **Esc** or a click outside the popup: close.
 - Double-click a row to paste it; single-click to preview it.
 
 The pause button stops recording until resumed, including across restarts. The
@@ -191,10 +191,12 @@ toward the budgets; pins alone may exceed them. Database indexes, searchable
 text, and SQLite free pages take additional space. Age-based pruning runs every
 minute, at service startup, and when opening the popup.
 
-`paste_delay_ms` allows keyboard focus to return after closing the popup. The
-app verifies that the original Hyprland window is still focused before sending
-a paste shortcut. If focus changes, it leaves the item copied and displays an
-explanation. `show --copy-only` disables automatic paste for that invocation.
+`paste_delay_ms` allows keyboard focus to settle after the popup is destroyed.
+The app restores the original Hyprland window, confirms focus, and then sends
+the paste shortcut. Enter activates on release; quick selection waits for held
+modifiers to be released. A failed paste leaves the item copied and reports an
+error on stderr without reopening the popup. `show --copy-only` disables
+automatic paste for that invocation.
 
 `terminal_classes` can replace the built-in list of terminal app classes that
 receive **Ctrl+Shift+V** instead of **Ctrl+V**. The default includes kitty,
@@ -274,7 +276,10 @@ The GTK smoke test exercises the real widget tree under Xvfb and writes a
 screenshot to `artifacts/clipboard.png`. Its clipboard transfer is stubbed. The
 Wayland smoke test uses an isolated headless Sway session to check real
 text/image capture, clipboard ownership, sensitive hints, daemon lifecycle,
-and the GTK layer-shell overlay.
+and the GTK layer-shell overlay. Real pointer and keyboard events verify outside
+clicks on both monitors, arrow-key selection followed by Enter, Alt quick
+selection, and copy-only behavior. A separate GTK text input receives the pasted
+text; Hyprland IPC is adapted to Sway for this integration test.
 Automatic paste should also be verified in a live Hyprland session.
 `show --windowed` opens a regular window for UI development.
 

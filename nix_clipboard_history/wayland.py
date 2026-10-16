@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 
 from .config import Config
@@ -51,6 +52,50 @@ def copy(data: bytes, mime: str):
         raise RuntimeError("wl-copy timed out; check your Wayland session") from error
     if result.returncode:
         raise RuntimeError("Could not take clipboard ownership; check your Wayland session")
+
+
+def focused_monitor() -> str:
+    """Match the Hyprland output to GDK when constructing a multi-monitor popup."""
+    try:
+        result = subprocess.run(
+            ["hyprctl", "-j", "monitors"], capture_output=True, check=True, timeout=2
+        )
+        return next(monitor["name"] for monitor in json.loads(result.stdout) if monitor["focused"])
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, StopIteration):
+        return ""
+
+
+def restore_focus(target: Target):
+    """Restore keyboard focus only after all layer surfaces have been destroyed."""
+    if not target.address:
+        raise RuntimeError("Copied, but no Hyprland target was found. Paste manually with Ctrl+V.")
+    try:
+        result = subprocess.run(
+            [
+                "hyprctl",
+                "dispatch",
+                f"hl.dsp.focus({{window={json.dumps('address:' + target.address)}}})",
+            ],
+            capture_output=True,
+            timeout=3,
+        )
+        if result.stdout.strip() == b"Invalid dispatcher":
+            result = subprocess.run(
+                ["hyprctl", "dispatch", "focuswindow", f"address:{target.address}"],
+                capture_output=True,
+                timeout=3,
+            )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError(
+            "Copied, but Hyprland did not restore focus. Paste manually with Ctrl+V."
+        ) from error
+    if result.returncode == 0 and result.stdout.strip() == b"ok":
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            if active_window().address == target.address:
+                return
+            time.sleep(0.02)
+    raise RuntimeError("Copied, but the previous window could not be focused. Paste manually.")
 
 
 def paste(target: Target, config: Config):

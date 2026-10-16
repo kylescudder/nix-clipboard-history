@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .config import Config
 from .store import Entry, Store
-from .wayland import active_window, copy, paste
+from .wayland import active_window, copy, focused_monitor, paste, restore_focus
 
 
 def human_size(size: int) -> str:
@@ -89,6 +89,10 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
             self.entries = []
             self.rows = []
             self.busy = False
+            self.closed = False
+            self.shields = []
+            self.pending_activation = None
+            self.selection_timeout = 0
             self.clear_armed = False
             self.clear_timeout = 0
             self.search_timeout = 0
@@ -107,22 +111,46 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
             settings.set_property("gtk-application-prefer-dark-theme", True)
             width, height = 880, 640
             monitors = display.get_monitors()
-            if monitors.get_n_items():
-                geometry = monitors.get_item(0).get_geometry()
+            monitor = monitors.get_item(0) if monitors.get_n_items() else None
+            if layer and monitors.get_n_items() > 1:
+                connector = focused_monitor()
+                monitor = next((m for m in monitors if m.get_connector() == connector), monitor)
+            if monitor:
+                geometry = monitor.get_geometry()
                 width, height = min(width, geometry.width - 48), min(height, geometry.height - 64)
-            self.set_default_size(width, height)
             if layer:
                 if not layer.is_supported():
                     raise RuntimeError("This compositor does not support layer-shell; use Hyprland")
-                layer.init_for_window(self)
-                layer.set_namespace(self, "nix-clipboard-history")
-                layer.set_layer(self, layer.Layer.OVERLAY)
+                self.configure_layer(self, monitor)
                 layer.set_keyboard_mode(self, layer.KeyboardMode.EXCLUSIVE)
-                layer.set_exclusive_zone(self, -1)
+            else:
+                self.set_default_size(width, height)
 
             root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            self.panel = root
             root.add_css_class("shell")
-            self.set_child(root)
+            if layer:
+                # A layer surface owns no input outside its bounds. Fill the output
+                # transparently so clicks around the centered panel can dismiss it.
+                backdrop = Gtk.Overlay()
+                backdrop.set_child(self.click_shield())
+                root.set_size_request(width, height)
+                root.set_halign(Gtk.Align.CENTER)
+                root.set_valign(Gtk.Align.CENTER)
+                backdrop.add_overlay(root)
+                self.set_child(backdrop)
+                for other in monitors:
+                    if other == monitor:
+                        continue
+                    shield = Gtk.ApplicationWindow(application=app, decorated=False)
+                    shield.add_css_class("clipboard-window")
+                    self.configure_layer(shield, other)
+                    layer.set_keyboard_mode(shield, layer.KeyboardMode.NONE)
+                    shield.set_child(self.click_shield())
+                    self.shields.append(shield)
+                    shield.present()
+            else:
+                self.set_child(root)
             header = Gtk.Box(spacing=12)
             header.add_css_class("header")
             logo = brand_mark(44)
@@ -276,6 +304,7 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
             keys = Gtk.EventControllerKey.new()
             keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
             keys.connect("key-pressed", self.key_pressed)
+            keys.connect("key-released", self.key_released)
             self.add_controller(keys)
             self.connect("close-request", self.closing)
             self.refresh()
@@ -283,11 +312,40 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
             self.present()
             self.search.grab_focus()
 
+        def configure_layer(self, window, monitor):
+            layer.init_for_window(window)
+            layer.set_namespace(window, "nix-clipboard-history")
+            layer.set_layer(window, layer.Layer.OVERLAY)
+            layer.set_exclusive_zone(window, -1)
+            if monitor:
+                layer.set_monitor(window, monitor)
+            for edge in (layer.Edge.TOP, layer.Edge.BOTTOM, layer.Edge.LEFT, layer.Edge.RIGHT):
+                layer.set_anchor(window, edge, True)
+
+        def click_shield(self):
+            background = Gtk.Box(hexpand=True, vexpand=True)
+            background.add_css_class("dismiss-backdrop")
+            click = Gtk.GestureClick.new()
+            click.set_button(0)
+
+            def dismiss(gesture, *_args):
+                gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+                self.close()
+
+            click.connect("pressed", dismiss)
+            background.add_controller(click)
+            return background
+
         def closing(self, *_args):
+            if self.closed:
+                return False
+            self.closed = True
             GLib.source_remove(self.poll_id)
-            for timer in (self.search_timeout, self.clear_timeout):
+            for timer in (self.search_timeout, self.clear_timeout, self.selection_timeout):
                 if timer:
                     GLib.source_remove(timer)
+            for shield in self.shields:
+                shield.destroy()
             self.store.close()
             return False
 
@@ -496,6 +554,8 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
             return False
 
         def activate(self, copy_only=False):
+            if self.closed:
+                return
             entry = self.current()
             if entry is None or self.busy:
                 return
@@ -506,7 +566,7 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
                 self.refresh()
                 return
             self.busy = True
-            self.set_sensitive(False)
+            self.panel.set_sensitive(False)
 
             def worker():
                 try:
@@ -519,36 +579,43 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
             threading.Thread(target=worker, daemon=True).start()
 
         def copy_failed(self, message):
+            if self.closed:
+                return False
             self.busy = False
-            self.set_sensitive(True)
+            self.panel.set_sensitive(True)
             self.inform(message)
             return False
 
         def copied(self, copy_only):
-            if copy_only or not self.paste_on_select:
-                self.close()
-            else:
-                if layer:
-                    layer.set_keyboard_mode(self, layer.KeyboardMode.NONE)
-                self.set_visible(False)
-                GLib.timeout_add(config.paste_delay_ms, self.finish_paste)
+            if not self.closed:
+                self.selection_timeout = GLib.timeout_add(15, self.finish_selection, copy_only)
             return False
 
-        def finish_paste(self):
-            try:
-                paste(target, config)
-            except (OSError, RuntimeError, TimeoutError) as error:
-                self.busy = False
-                self.set_sensitive(True)
-                if layer:
-                    layer.set_keyboard_mode(self, layer.KeyboardMode.EXCLUSIVE)
-                self.present()
-                self.inform(str(error))
-            else:
-                self.close()
+        def finish_selection(self, copy_only):
+            should_paste = self.paste_on_select and not copy_only
+            if should_paste:
+                keyboard = self.get_display().get_default_seat().get_keyboard()
+                modifiers = (
+                    Gdk.ModifierType.SHIFT_MASK
+                    | Gdk.ModifierType.CONTROL_MASK
+                    | Gdk.ModifierType.ALT_MASK
+                    | Gdk.ModifierType.SUPER_MASK
+                    | Gdk.ModifierType.META_MASK
+                    | Gdk.ModifierType.HYPER_MASK
+                )
+                # Quick-select may still have Alt held. Keep the grab until its
+                # release so the original application receives a clean Ctrl+V.
+                if keyboard and keyboard.get_modifier_state() & modifiers:
+                    return True
+            self.selection_timeout = 0
+            self.get_application().paste_requested = should_paste
+            self.close()
             return False
 
         def key_pressed(self, _controller, key, _code, state):
+            if key == Gdk.KEY_Escape and (self.busy or not self.clear_armed):
+                self.close()
+                return True
             if self.busy:
                 return True
             ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
@@ -559,7 +626,7 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
                 else:
                     self.close()
             elif key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
-                self.activate(copy_only=ctrl)
+                self.pending_activation = (key, ctrl)
             elif key in (Gdk.KEY_Down, Gdk.KEY_Up):
                 if self.rows:
                     row = self.listbox.get_selected_row()
@@ -585,10 +652,16 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
                 index = key - Gdk.KEY_1
                 if index < len(self.rows):
                     self.listbox.select_row(self.rows[index])
-                    self.activate()
+                    self.pending_activation = (key, False)
             else:
                 return False
             return True
+
+        def key_released(self, _controller, key, _code, _state):
+            if self.pending_activation and self.pending_activation[0] == key:
+                _, copy_only = self.pending_activation
+                self.pending_activation = None
+                self.activate(copy_only=copy_only)
 
     class App(Gtk.Application):
         def __init__(self):
@@ -598,6 +671,7 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
             )
             self.window = None
             self.error = None
+            self.paste_requested = False
 
         def do_activate(self):
             if self.window:
@@ -614,4 +688,11 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
     result = app.run([])
     if app.error:
         raise app.error
+    if app.paste_requested:
+        # Closing the application destroys every layer surface and releases the
+        # exclusive keyboard grab before the compositor restores client focus.
+        Gdk.Display.get_default().sync()
+        time.sleep(config.paste_delay_ms / 1000)
+        restore_focus(target)
+        paste(target, config)
     return result

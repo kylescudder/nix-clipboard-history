@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from nix_clipboard_history.config import Config
-from nix_clipboard_history.wayland import Target, active_window, copy, paste
+from nix_clipboard_history.wayland import Target, active_window, copy, paste, restore_focus
 
 
 class WaylandTests(unittest.TestCase):
@@ -95,6 +95,60 @@ class WaylandTests(unittest.TestCase):
     def test_no_target_leaves_content_for_manual_paste(self):
         with self.assertRaisesRegex(RuntimeError, "no Hyprland target"):
             paste(Target(), Config())
+
+    @patch("nix_clipboard_history.wayland.active_window", return_value=Target("0xabc", "firefox"))
+    @patch("nix_clipboard_history.wayland.subprocess.run")
+    def test_restores_original_window_focus_with_lua(self, run, _active):
+        run.return_value = subprocess.CompletedProcess([], 0, b"ok\n")
+        restore_focus(Target("0xabc", "firefox"))
+        self.assertEqual(
+            run.call_args.args[0],
+            ["hyprctl", "dispatch", 'hl.dsp.focus({window="address:0xabc"})'],
+        )
+
+    @patch("nix_clipboard_history.wayland.active_window", return_value=Target("0xabc", "kitty"))
+    @patch("nix_clipboard_history.wayland.subprocess.run")
+    def test_restores_original_window_focus_with_legacy_parser(self, run, _active):
+        run.side_effect = [
+            subprocess.CompletedProcess([], 1, b"Invalid dispatcher\n"),
+            subprocess.CompletedProcess([], 0, b"ok\n"),
+        ]
+        restore_focus(Target("0xabc", "kitty"))
+        self.assertEqual(
+            run.call_args.args[0], ["hyprctl", "dispatch", "focuswindow", "address:0xabc"]
+        )
+
+    @patch("nix_clipboard_history.wayland.time.sleep")
+    @patch("nix_clipboard_history.wayland.active_window")
+    @patch("nix_clipboard_history.wayland.subprocess.run")
+    def test_waits_for_focus_confirmation_before_paste(self, run, active, sleep):
+        run.return_value = subprocess.CompletedProcess([], 0, b"ok\n")
+        active.side_effect = [Target(), Target("0xabc", "firefox")]
+        restore_focus(Target("0xabc", "firefox"))
+        sleep.assert_called_once_with(0.02)
+
+    @patch("nix_clipboard_history.wayland.time.monotonic", side_effect=[0, 0, 2])
+    @patch("nix_clipboard_history.wayland.time.sleep")
+    @patch("nix_clipboard_history.wayland.active_window", return_value=Target("0xdef", "other"))
+    @patch("nix_clipboard_history.wayland.subprocess.run")
+    def test_failed_focus_confirmation_stops_without_sending_paste(self, run, *_mocks):
+        run.return_value = subprocess.CompletedProcess([], 0, b"ok\n")
+        with self.assertRaisesRegex(RuntimeError, "could not be focused"):
+            restore_focus(Target("0xabc", "firefox"))
+        self.assertEqual(run.call_count, 1)
+
+    @patch("nix_clipboard_history.wayland.subprocess.run")
+    def test_missing_target_does_not_dispatch_focus(self, run):
+        with self.assertRaisesRegex(RuntimeError, "no Hyprland target"):
+            restore_focus(Target())
+        run.assert_not_called()
+
+    @patch("nix_clipboard_history.wayland.subprocess.run")
+    def test_focus_dispatch_failure_does_not_retry(self, run):
+        run.return_value = subprocess.CompletedProcess([], 1, b"window not found")
+        with self.assertRaisesRegex(RuntimeError, "could not be focused"):
+            restore_focus(Target("0xabc", "firefox"))
+        self.assertEqual(run.call_count, 1)
 
     @patch("nix_clipboard_history.wayland.active_window", return_value=Target("0xabc", "firefox"))
     @patch(

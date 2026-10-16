@@ -24,7 +24,7 @@ errors = []
 def check_popup():
     app = Gio.Application.get_default()
     try:
-        popup = app.get_active_window()
+        popup = app.window
         assert Gtk4LayerShell.is_layer_window(popup)
         assert Gtk4LayerShell.get_namespace(popup) == "nix-clipboard-history"
         assert Gtk4LayerShell.get_keyboard_mode(popup) == Gtk4LayerShell.KeyboardMode.EXCLUSIVE

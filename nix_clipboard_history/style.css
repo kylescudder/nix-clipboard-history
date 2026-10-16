@@ -42,3 +42,8 @@ textview.text-preview, textview.text-preview text { background: transparent; col
 .message { padding: 12px 22px; background: #303049; color: #dbdcff; font-size: 12px; }
 .danger { color: #ff9aab; background: #492735; }
 .shortcuts { color: #646e84; font-size: 9px; padding: 0 20px 12px; }
+.dismiss-backdrop {
+  /* A nonzero alpha makes GTK render a buffer even on an otherwise empty
+     output, so its layer surface maps and can receive outside clicks. */
+  background: rgba(0, 0, 0, 0.004);
+}

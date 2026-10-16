@@ -1,11 +1,12 @@
 """Real data-control, capture supervision, and clipboard ownership under headless Sway.
 
 Run on Linux with: nix develop --command env PYTHONPATH=. python tests/wayland_smoke.py
-Sway is only a test compositor; automatic Hyprland paste has separate unit coverage.
+Hyprland IPC syntax has unit coverage; popup regressions adapt its dispatches to Sway.
 """
 
 import base64
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -43,7 +44,7 @@ def main():
                 "XDG_CONFIG_HOME": str(root / "config"),
                 "WLR_BACKENDS": "headless",
                 "WLR_RENDERER": "pixman",
-                "WLR_HEADLESS_OUTPUTS": "1",
+                "WLR_HEADLESS_OUTPUTS": "2",
                 "GDK_BACKEND": "wayland",
                 "GSK_RENDERER": "cairo",
                 "GTK_A11Y": "none",
@@ -52,16 +53,54 @@ def main():
         os.environ.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
         os.environ.pop("WAYLAND_DISPLAY", None)
         configuration = root / "sway.conf"
-        configuration.write_text("seat seat0 fallback true\nxwayland disable\n")
+        configuration.write_text(
+            "seat seat0 fallback true\nxwayland disable\n"
+            "output HEADLESS-1 mode 1280x800 pos 0 0\n"
+            "output HEADLESS-2 mode 1280x800 pos 1280 0\n"
+            'for_window [title="Clipboard paste target"] floating enable\n'
+        )
         log = (root / "sway.log").open("w+")
         compositor = subprocess.Popen(
             ["sway", "--unsupported-gpu", "--config", str(configuration)], stdout=log, stderr=log
         )
         daemon = None
+        pointer = None
         try:
             wait_for(lambda: list(root.glob("wayland-*")), "Wayland socket")
             socket = next(p for p in root.glob("wayland-*") if not p.name.endswith(".lock"))
             os.environ["WAYLAND_DISPLAY"] = socket.name
+            wait_for(lambda: list(root.glob("sway-ipc*.sock")), "Sway IPC socket")
+            os.environ["SWAYSOCK"] = str(next(root.glob("sway-ipc*.sock")))
+            # One-shot virtual devices disappear before GTK can bind wl_pointer.
+            # Keep a device connected while real wlrctl clicks drive the popup.
+            protocol = os.environ["WLR_POINTER_PROTOCOL"]
+            for action, filename in (
+                ("client-header", "pointer-client.h"),
+                ("private-code", "pointer.c"),
+            ):
+                subprocess.run(
+                    ["wayland-scanner", action, protocol, str(root / filename)], check=True
+                )
+            flags = shlex.split(
+                subprocess.check_output(
+                    ["pkg-config", "--cflags", "--libs", "wayland-client"], text=True
+                )
+            )
+            subprocess.run(
+                [
+                    "cc",
+                    "tests/virtual_pointer.c",
+                    str(root / "pointer.c"),
+                    "-I",
+                    directory,
+                    *flags,
+                    "-o",
+                    str(root / "pointer"),
+                ],
+                check=True,
+            )
+            pointer = subprocess.Popen([str(root / "pointer"), str(root / "pointer-ready")])
+            wait_for(lambda: (root / "pointer-ready").exists(), "persistent pointer")
             daemon = subprocess.Popen([sys.executable, "-m", "nix_clipboard_history", "daemon"])
             with Store() as store:
                 wait_for(store.daemon_running, "capture service")
@@ -117,6 +156,32 @@ def main():
                     ).stdout
                     == b"resumed"
                 )
+                store.clear(include_pinned=True)
+                store.add(b"selected older note", "text", "test")
+                store.add(b"latest note", "text", "test")
+                store.set_paused(True)
+                for mode in (
+                    "outside-button1",
+                    "outside-button2",
+                    "outside-button3",
+                    "other-monitor",
+                    "enter",
+                    "alt-select",
+                    "copy-only",
+                    "paste-error",
+                    "escape",
+                    "cancel-copy",
+                ):
+                    state = root / f"{mode}.txt"
+                    regression = subprocess.run(
+                        [sys.executable, "tests/popup_smoke.py", mode, str(state)],
+                        capture_output=True,
+                        timeout=15,
+                    )
+                    assert regression.returncode == 0, (
+                        regression.stdout.decode() + regression.stderr.decode()
+                    )
+                    print(regression.stdout.decode().strip())
                 duplicate = subprocess.run(
                     [sys.executable, "-m", "nix_clipboard_history", "daemon"],
                     capture_output=True,
@@ -135,7 +200,7 @@ def main():
             print(log.read(), file=sys.stderr)
             raise
         finally:
-            for process in (daemon, compositor):
+            for process in (daemon, pointer, compositor):
                 if process is not None and process.poll() is None:
                     process.terminate()
                     try:
