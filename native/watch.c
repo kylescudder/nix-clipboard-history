@@ -103,7 +103,22 @@ static void selection(void *data, struct zwlr_data_control_device_v1 *device,
         finished = true;
     } else {
         int status;
-        while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+        pid_t waited;
+        do {
+            waited = waitpid(child, &status, 0);
+        } while (waited < 0 && errno == EINTR);
+        if (waited < 0) {
+            perror("clipboard capture wait");
+            finished = true;
+        } else if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            if (WIFEXITED(status))
+                fprintf(stderr, "Clipboard capture command exited with status %d\n",
+                        WEXITSTATUS(status));
+            else if (WIFSIGNALED(status))
+                fprintf(stderr, "Clipboard capture command killed by signal %d\n",
+                        WTERMSIG(status));
+            finished = true;
+        }
     }
     destroy_offer(offer);
 }

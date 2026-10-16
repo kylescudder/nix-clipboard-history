@@ -4,6 +4,7 @@ Run on Linux with: nix develop --command env PYTHONPATH=. python tests/wayland_s
 Hyprland IPC syntax has unit coverage; popup regressions adapt its dispatches to Sway.
 """
 
+import argparse
 import base64
 import json
 import os
@@ -74,7 +75,7 @@ def check_offer(store, root, name, offers, expected):
             owner.wait(timeout=3)
 
 
-def main():
+def main(package=None):
     # Sway refuses to run as root. A container can safely drop privileges for this test.
     if os.getuid() == 0:
         os.setgroups([])
@@ -150,7 +151,16 @@ def main():
             )
             pointer = subprocess.Popen([str(root / "pointer"), str(root / "pointer-ready")])
             wait_for(lambda: (root / "pointer-ready").exists(), "persistent pointer")
-            daemon = subprocess.Popen([sys.executable, "-m", "nix_clipboard_history", "daemon"])
+            daemon_command = [sys.executable, "-m", "nix_clipboard_history", "daemon"]
+            daemon_options = {}
+            if package:
+                daemon_command = [str(package / "bin/nix-clipboard-history"), "daemon"]
+                environment = os.environ.copy()
+                environment.pop("PYTHONPATH", None)
+                environment.pop("NIX_PYTHONPATH", None)
+                # A checkout or development shell must not hide missing installed imports.
+                daemon_options = {"cwd": directory, "env": environment}
+            daemon = subprocess.Popen(daemon_command, **daemon_options)
             with Store() as store:
                 wait_for(store.daemon_running, "capture service")
                 # Allow the watcher to bind data-control before testing a selection.
@@ -287,19 +297,35 @@ def main():
                     )
                     print(regression.stdout.decode().strip())
                 duplicate = subprocess.run(
-                    [sys.executable, "-m", "nix_clipboard_history", "daemon"],
+                    daemon_command,
                     capture_output=True,
                     timeout=3,
+                    **daemon_options,
                 )
                 assert duplicate.returncode == 1 and b"already running" in duplicate.stderr
                 daemon.send_signal(signal.SIGTERM)
                 assert daemon.wait(timeout=5) == 0
                 assert not store.daemon_running()
+                copy(b"capture failure regression", "text/plain")
+                failed_capture = subprocess.run(
+                    [
+                        os.environ["NIX_CLIPBOARD_WATCHER"],
+                        "text/plain",
+                        "--",
+                        sys.executable,
+                        "-c",
+                        "raise SystemExit(23)",
+                    ],
+                    capture_output=True,
+                    timeout=5,
+                )
+                assert failed_capture.returncode == 1, failed_capture.stderr
+                assert b"capture command exited with status 23" in failed_capture.stderr
                 store.set_paused(False)
                 settings = root / "config/nix-clipboard-history/config.json"
                 settings.parent.mkdir(parents=True, exist_ok=True)
                 settings.write_text('{"capture_images":false}')
-                daemon = subprocess.Popen([sys.executable, "-m", "nix_clipboard_history", "daemon"])
+                daemon = subprocess.Popen(daemon_command, **daemon_options)
                 wait_for(store.daemon_running, "text-only service")
                 time.sleep(0.3)
                 check_offer(
@@ -336,4 +362,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--package", type=Path, help="Test an installed Nix package outside the checkout"
+    )
+    args = parser.parse_args()
+    main(args.package.resolve() if args.package else None)

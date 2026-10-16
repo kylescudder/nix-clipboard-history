@@ -17,7 +17,8 @@ jobs:
       - run: nix develop --command ruff format --check nix_clipboard_history tests
       - run: nix fmt -- --check flake.nix nix/*.nix
       - run: nix develop --command bash tests/run-gtk-smoke.sh
-      - run: nix develop --command env PYTHONPATH=. python tests/wayland_smoke.py
+      - run: nix build
+      - run: nix develop --command env PYTHONPATH=. python tests/wayland_smoke.py --package ./result
       - uses: actions/upload-artifact@v4
         if: always()
         with:

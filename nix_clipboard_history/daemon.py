@@ -39,15 +39,19 @@ def run(config: Config) -> int:
                 previous[sig] = signal.signal(sig, lambda *_args: stop.set())
             watchers = []
             try:
+                # Nix's entry point sets up sys.path for this process only. Helpers
+                # must re-enter that wrapper rather than start its bare interpreter.
+                executable = os.environ.get("NIX_CLIPBOARD_EXECUTABLE")
+                capture_command = (
+                    [executable] if executable else [sys.executable, "-m", "nix_clipboard_history"]
+                )
                 watchers.append(
                     subprocess.Popen(
                         [
                             os.environ.get("NIX_CLIPBOARD_WATCHER", "nix-clipboard-history-watch"),
                             *capture_types(config),
                             "--",
-                            sys.executable,
-                            "-m",
-                            "nix_clipboard_history",
+                            *capture_command,
                             "capture",
                             "--kind",
                             "auto",
@@ -60,7 +64,7 @@ def run(config: Config) -> int:
                 while not stop.wait(0.5):
                     if any(child.poll() is not None for child in watchers):
                         raise RuntimeError(
-                            "Clipboard watcher exited; check Wayland data-control support"
+                            "Clipboard watcher exited; check the logs for capture or Wayland errors"
                         )
                     ticks += 1
                     if ticks % 120 == 0:
