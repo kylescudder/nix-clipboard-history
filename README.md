@@ -468,7 +468,8 @@ ruff format --check nix_clipboard_history tests
 nix fmt -- --check flake.nix nix/*.nix
 nix flake check
 bash tests/run-gtk-smoke.sh
-env PYTHONPATH=. python tests/wayland_smoke.py
+nix build
+env PYTHONPATH=. python tests/wayland_smoke.py --package ./result
 ```
 
 The GTK smoke test exercises the real widget tree under Xvfb with the default,
@@ -482,6 +483,9 @@ selection, and copy-only behavior. A separate GTK text input receives the pasted
 text; Hyprland IPC is adapted to Sway for this integration test.
 Multi-format clipboard checks verify one record per offer, SVG-before-PNG
 selection, image priority, text fallback, sensitive hints, and disabled images.
+The `--package` option runs the installed daemon outside the checkout with Python
+import paths cleared, so development files cannot hide packaging errors. Omit it
+to test the daemon directly from source.
 Automatic paste should also be verified in a live Hyprland session.
 `show --windowed` opens a regular window for UI development.
 

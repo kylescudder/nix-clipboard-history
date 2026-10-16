@@ -67,6 +67,7 @@ python3Packages.buildPythonApplication {
       }
       --set NIX_CLIPBOARD_LAYER_SHELL ${gtk4-layer-shell}/lib/libgtk4-layer-shell.so.0
       --set NIX_CLIPBOARD_WATCHER "$out/libexec/nix-clipboard-history-watch"
+      --set NIX_CLIPBOARD_EXECUTABLE "$out/bin/nix-clipboard-history"
     )
   '';
 
