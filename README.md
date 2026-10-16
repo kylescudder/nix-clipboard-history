@@ -177,6 +177,7 @@ popup. Restart the capture service too if capture settings changed.
 
 - **Super+Shift+V**: open the popup.
 - **Type**: search; all search words must match, in any order.
+- **← / →**: cycle categories: All, Text & links, Images, and Pinned.
 - **↑ / ↓**: select an item; **Enter**: paste into the previous app.
 - **Ctrl+Enter**: copy the selected item without pasting.
 - **Alt+1…9**: paste one of the first nine visible items.
