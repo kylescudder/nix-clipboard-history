@@ -156,6 +156,23 @@ hl.bind("SUPER + SHIFT + V", hl.dsp.exec_cmd("nix-clipboard-history show"))
 Without Home Manager, install the package using `nix profile add path:.`, add the
 shortcut above, and launch `nix-clipboard-history daemon` once at session start.
 
+### Home Manager option reference
+
+These options live under `programs.nix-clipboard-history`:
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `enable` | `false` | Install the app, write its config, and enable the capture service. |
+| `package` | This flake's default package for your system | Override the package to install and run. |
+| `settings` | `{ }` | Configuration written as JSON; accepts every setting in [Configuration](#configuration), including `appearance`. |
+| `extraCss` | `""` | GTK4 CSS text; a nonempty value writes `style.css`. See [Themes and appearance](#themes-and-appearance). |
+| `hyprland.enable` | `true` | Add the popup shortcut; requires Home Manager's Hyprland module to be enabled. Set `false` to manage the shortcut yourself. |
+| `hyprland.shortcut` | `"SUPER SHIFT, V"` | Shortcut in Hyprland modifier/key syntax, for example `"SUPER ALT, V"`; also converted for Lua configurations. |
+
+Manage these files through your Home Manager configuration when using the module.
+After changing `settings` or `extraCss`, apply your usual rebuild, then reopen the
+popup. Restart the capture service too if capture settings changed.
+
 ## Keyboard controls
 
 - **Super+Shift+V**: open the popup.
@@ -191,6 +208,26 @@ create that JSON file yourself. All settings are optional:
 }
 ```
 
+### General setting reference
+
+| Setting | Default | Accepted values and effect |
+| --- | --- | --- |
+| `max_items` | `500` | Integer ≥ 1. History item budget, including pins. |
+| `retention_days` | `30` | Integer ≥ 1. Expire unpinned items this many days after their last copy. |
+| `max_item_bytes` | `10485760` (10 MiB) | Integer ≥ 1. Skip new captures larger than this many bytes. |
+| `max_total_bytes` | `268435456` (256 MiB) | Integer ≥ 1. Total stored clipboard payload budget, including pins. |
+| `auto_paste` | `true` | Boolean. Paste after selection; `false` copies the item and closes the popup. |
+| `paste_delay_ms` | `160` | Integer from 0 to 5000. Delay after closing the popup before restoring focus and pasting. |
+| `capture_images` | `true` | Boolean. Record supported images; `false` uses text from mixed offers and skips image-only offers. |
+| `excluded_apps` | `[]` | List of application class strings to exclude from capture, using exact, case-insensitive matches against the focused app. |
+| `terminal_classes` | List below | List of application class strings that receive Ctrl+Shift+V; exact, case-insensitive matching. Replaces the default list. |
+| `appearance` | Defaults below | Object containing the settings in [Themes and appearance](#themes-and-appearance). |
+
+Use JSON numbers for integer settings and JSON `true`/`false` for booleans.
+Unknown keys, wrong types, and out-of-range values are rejected with an error.
+Omitted settings use their defaults; omitted fields inside `appearance` do too.
+There is no `0` or `null` value to disable the history limits.
+
 The defaults retain up to 500 items and 256 MiB of clipboard payload, with a
 30-day expiry and 10 MiB per-item limit. Pins survive automatic pruning and count
 toward the budgets; pins alone may exceed them. Database indexes, searchable
@@ -204,11 +241,30 @@ modifiers to be released. A failed paste leaves the item copied and reports an
 error on stderr without reopening the popup. `show --copy-only` disables
 automatic paste for that invocation.
 
-`terminal_classes` can replace the built-in list of terminal app classes that
-receive **Ctrl+Shift+V** instead of **Ctrl+V**. The default includes kitty,
-Alacritty, foot, WezTerm, Ghostty, GNOME Terminal/Console, Konsole, Black Box,
-xterm, and st. Use `hyprctl -j activewindow` to find an app's class. A terminal
-using different paste keys can use copy-only mode.
+`terminal_classes` replaces the built-in list of terminal app classes that
+receive **Ctrl+Shift+V** instead of **Ctrl+V**. The exact default is:
+
+```json
+[
+  "kitty",
+  "Alacritty",
+  "foot",
+  "footclient",
+  "org.wezfurlong.wezterm",
+  "com.mitchellh.ghostty",
+  "Ghostty",
+  "org.gnome.Terminal",
+  "org.gnome.Console",
+  "konsole",
+  "com.raggesilver.BlackBox",
+  "xterm",
+  "st-256color"
+]
+```
+
+Use `hyprctl -j activewindow` to find an app's class. Setting
+`"terminal_classes": []` makes every app receive **Ctrl+V**. A terminal using
+different paste keys can use copy-only mode.
 
 Restart the capture service after changing capture settings. Reopen the popup to
 reload its settings; appearance changes only require reopening the popup.
@@ -239,15 +295,15 @@ keep the dark theme and original layout. For example:
 | Setting | Default | Accepted values |
 | --- | --- | --- |
 | `theme` | `"dark"` | `"dark"` or `"light"` |
-| `accent_color` | `""` | `""` for the theme default, or `"#RRGGBB"` |
-| `font_family` | `"Inter"` | A single installed font family name |
-| `monospace_font_family` | `"JetBrains Mono"` | A single installed preview font family name |
-| `font_size` | `13` | Base font size in pixels, 10–24; scales all popup text |
+| `accent_color` | `""` | `""` for the theme default (`#b8c8ff` dark, `#365ad6` light), or `"#RRGGBB"`; hex letters are case-insensitive |
+| `font_family` | `"Inter"` | A single nonblank font family name without control characters |
+| `monospace_font_family` | `"JetBrains Mono"` | A single nonblank preview font family name without control characters |
+| `font_size` | `13` | Integer from 10 to 24. Base font size in pixels; scales all popup text |
 | `density` | `"comfortable"` | `"comfortable"` or `"compact"` |
-| `border_radius` | `18` | Popup corner radius in pixels, 0–32 |
-| `window_width` | `880` | Requested popup width in logical pixels, 600–1600 |
-| `window_height` | `640` | Requested popup height in logical pixels, 400–1200 |
-| `show_preview` | `true` | `false` gives the history list the full content width |
+| `border_radius` | `18` | Integer from 0 to 32. Popup corner radius in pixels |
+| `window_width` | `880` | Integer from 600 to 1600. Requested popup width in logical pixels |
+| `window_height` | `640` | Integer from 400 to 1200. Requested popup height in logical pixels |
+| `show_preview` | `true` | Boolean; `false` gives the history list the full content width |
 
 The accent colour applies to buttons, selected items, tabs, and focus outlines.
 Button text automatically uses a contrasting black or white colour. Fonts fall
@@ -272,13 +328,33 @@ colours or widget styles:
 .clipboard-window .history-row { border-radius: 4px; }
 ```
 
-Other palette names are `clipboard_subtle`, `clipboard_divider`,
-`clipboard_input_bg`, `clipboard_hover_bg`, `clipboard_icon_bg`,
-`clipboard_scrollbar`, `clipboard_accent`, `clipboard_accent_fg`,
-`clipboard_danger`, and `clipboard_danger_bg`. When replacing the accent in CSS,
-set its foreground colour too. Useful widget classes include `.header`,
+All named colours and their defaults are listed below. Define them using
+`@define-color` and reference them as `@clipboard_bg`, for example.
+
+| Colour name | Dark default | Light default | Used for |
+| --- | --- | --- | --- |
+| `clipboard_bg` | `#17191f` | `#f8f9fc` | Main popup surface. |
+| `clipboard_preview_bg` | `#14171d` | `#f0f2f7` | Preview surface. |
+| `clipboard_fg` | `#e7e9ef` | `#222838` | Main text and icons. |
+| `clipboard_muted` | `#8f95a6` | `#596479` | Secondary text and controls. |
+| `clipboard_subtle` | `#7e8aa3` | `#647087` | Metadata, hints, and keycaps. |
+| `clipboard_border` | `#353842` | `#cbd1dd` | Popup and search borders. |
+| `clipboard_divider` | `#2c303a` | `#dce0e9` | Panel and toolbar separators. |
+| `clipboard_input_bg` | `#20232b` | `#ffffff` | Search field surface. |
+| `clipboard_hover_bg` | `#222630` | `#e8ecf4` | Hovered controls and rows. |
+| `clipboard_icon_bg` | `#252b38` | `#e3e8f2` | Item icon and keycap surfaces. |
+| `clipboard_scrollbar` | `#3b4150` | `#b3bdcf` | Scrollbar slider. |
+| `clipboard_accent` | `#b8c8ff` | `#365ad6` | Primary button, focus, and colours mixed into selections. |
+| `clipboard_accent_fg` | `#000000` | `#ffffff` | Primary button text; calculated from `appearance.accent_color`. |
+| `clipboard_danger` | `#ff9aab` | `#a32142` | Destructive action text. |
+| `clipboard_danger_bg` | `#492735` | `#fbe4ea` | Destructive action surface. |
+
+When replacing the accent in CSS, set its foreground colour too. Useful widget
+classes include `.header`,
 `.search-box`, `.filter`, `.history-row`, `.item-title`, `.item-meta`, `.preview`,
-`.text-preview`, `.footer`, and `.primary`.
+`.text-preview`, `.footer`, and `.primary`. The
+[built-in stylesheet](nix_clipboard_history/style.css) contains the full selector
+reference. Use installed fonts or the documented fallbacks in your custom CSS.
 
 Home Manager can write this file declaratively:
 
@@ -320,6 +396,37 @@ Image previews depend on the installed GdkPixbuf loaders. Rich formatting, file
 offers, primary-selection history, and OCR are outside the current feature set.
 
 ## Commands and troubleshooting
+
+Run `nix-clipboard-history` without a command to open the popup. The complete
+command reference is:
+
+| Command | Arguments and options | Behaviour |
+| --- | --- | --- |
+| `show` | `--copy-only`, `--windowed` | Open the popup. `--copy-only` disables automatic paste for this invocation. `--windowed` uses a regular GTK window for development. |
+| `daemon` | None | Watch the Wayland clipboard; run one capture service per session. |
+| `capture` | `--kind text\|image\|auto` (default `text`) | Read one item from stdin; used by the native watcher. See below. |
+| `list` | Optional `query`, `--kind all\|text\|image\|pinned` (default `all`), `--limit N` (default `100`, integer ≥ 1) | Print JSON metadata, with pins first and then newest copies. All query words must match text/source, case-insensitively. Full clipboard bodies are omitted. |
+| `copy` | Required item `id` | Copy the item to the clipboard without pasting. |
+| `pin` | Required item `id` | Toggle the item's pin. |
+| `delete` | Required item `id` | Delete the history item. |
+| `clear` | Required `--yes`, optional `--all` | Delete unpinned history; add `--all` to include pins. Leaves the live clipboard unchanged. |
+| `pause` | None | Pause capture; persists across restarts. |
+| `resume` | None | Resume capture. |
+| `status` | None | Print JSON with `items`, `pinned`, payload `bytes`, `paused`, and `daemon_running`. |
+
+Use `nix-clipboard-history --version` to print the version. `-h` / `--help`
+works globally and after any command, for example
+`nix-clipboard-history list --help`. Put popup flags after `show`, for example
+`nix-clipboard-history show --copy-only`.
+
+`capture --kind text` expects UTF-8 plain text. `--kind image` detects a supported
+image format from its bytes. `--kind auto` uses the watcher's `CLIPBOARD_TYPE`
+environment variable to select text or image; unsupported or missing types are
+ignored. Capture is skipped when paused, when the focused application is excluded,
+or when `CLIPBOARD_STATE` is anything other than `data` (the default when unset).
+Empty, invalid, unsupported, or oversized content is not retained.
+
+Common examples:
 
 ```sh
 nix-clipboard-history status                 # counts, payload size, paused/running state
