@@ -30,8 +30,23 @@ in
         max_items = 500;
         retention_days = 30;
         auto_paste = true;
+        appearance = {
+          theme = "dark";
+          accent_color = "#a6e3a1";
+          density = "compact";
+        };
       };
       description = "Settings written to nix-clipboard-history/config.json. See the README for available keys.";
+    };
+    extraCss = lib.mkOption {
+      type = lib.types.lines;
+      default = "";
+      example = ''
+        @define-color clipboard_bg #1e1e2e;
+        @define-color clipboard_preview_bg #181825;
+        .clipboard-window .shell { box-shadow: none; }
+      '';
+      description = "GTK4 CSS written to nix-clipboard-history/style.css and loaded after the built-in theme.";
     };
     hyprland = {
       enable = lib.mkOption {
@@ -58,6 +73,9 @@ in
     home.packages = [ cfg.package ];
     xdg.configFile."nix-clipboard-history/config.json".source =
       json.generate "clipboard-config.json" cfg.settings;
+    xdg.configFile."nix-clipboard-history/style.css" = lib.mkIf (cfg.extraCss != "") {
+      text = cfg.extraCss;
+    };
 
     systemd.user.services.nix-clipboard-history = {
       Unit = {

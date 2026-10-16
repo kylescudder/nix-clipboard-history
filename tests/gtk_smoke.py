@@ -19,13 +19,38 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, Gio, GLib
+from gi.repository import Gdk, Gio, GLib, Gtk
 
-from nix_clipboard_history.config import Config
+from nix_clipboard_history.config import Appearance, Config
 from nix_clipboard_history.gui import run
 from nix_clipboard_history.store import Store
+from nix_clipboard_history.theme import custom_css_path, stylesheet
 
-config = Config()
+case = os.environ.get("GTK_SMOKE_APPEARANCE", "default")
+appearance = {
+    "default": Appearance(),
+    "light": Appearance(theme="light", accent_color="#0f766e", font_size=15, window_width=960),
+    "compact": Appearance(
+        accent_color="#a6e3a1",
+        density="compact",
+        font_size=12,
+        border_radius=0,
+        window_width=720,
+        window_height=500,
+        show_preview=False,
+    ),
+    "custom": Appearance(),
+    "invalid": Appearance(),
+}[case]
+config = Config(appearance=appearance)
+if case in ("custom", "invalid"):
+    path = custom_css_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "@define-color clipboard_fg #a6e3a1;\n.clipboard-window .heading { color: #ffe08a; }"
+        if case == "custom"
+        else ".shell { color: definitely-not-a-colour; }"
+    )
 snippet = b"""programs.nix-clipboard-history = {
   enable = true;
   settings = {
@@ -62,6 +87,34 @@ def window():
 
 def initial():
     popup = window()
+    assert popup.preview.get_visible() == appearance.show_preview
+    assert popup.panel.has_css_class(appearance.density)
+    assert Gtk.Settings.get_default().get_property("gtk-application-prefer-dark-theme") == (
+        appearance.theme == "dark"
+    )
+    foreground = popup.get_color()
+    expected = Gdk.RGBA()
+    expected.parse("#a6e3a1" if case == "custom" else "#222838" if case == "light" else "#e7e9ef")
+    assert foreground.equal(expected), (case, foreground.to_string(), expected.to_string())
+    found, accent = popup.get_style_context().lookup_color("clipboard_accent")
+    assert found
+    if appearance.accent_color:
+        expected.parse(appearance.accent_color)
+        assert accent.equal(expected)
+    # Every generated variant must be accepted by the real GTK CSS parser,
+    # including font names containing CSS punctuation.
+    for settings in (
+        Appearance(),
+        Appearance(theme="light"),
+        Appearance(font_family='A "quoted" \\ font', font_size=24, border_radius=32),
+    ):
+        provider = Gtk.CssProvider()
+        parse_errors = []
+        provider.connect(
+            "parsing-error", lambda _p, _s, error, errors=parse_errors: errors.append(str(error))
+        )
+        provider.load_from_data(stylesheet(settings).encode())
+        assert not parse_errors, parse_errors
     assert len(popup.entries) == 6
     assert popup.current().pinned
     assert popup.text_view.get_buffer().get_char_count() == len(snippet)
@@ -100,7 +153,13 @@ def capture():
     directory = Path(os.environ.get("ARTIFACT_DIR", "artifacts"))
     directory.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["magick", "import", "-window", "Clipboard History", str(directory / "clipboard.png")],
+        [
+            "magick",
+            "import",
+            "-window",
+            "Clipboard History",
+            str(directory / ("clipboard.png" if case == "default" else f"clipboard-{case}.png")),
+        ],
         check=True,
         timeout=10,
     )
@@ -149,4 +208,4 @@ if errors:
     raise SystemExit(1)
 assert result == 0
 assert copies == [(snippet, "text/plain;charset=utf-8")]
-print("GTK smoke passed: navigation, search, filters, image preview, pins, pause, clear, copy.")
+print(f"GTK smoke passed ({case}): styles, navigation, search, filters, preview, pins, copy.")

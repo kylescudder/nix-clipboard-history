@@ -63,7 +63,15 @@
                   };
                   wayland.windowManager.hyprland.enable = true;
                   wayland.windowManager.hyprland.configType = configType;
-                  programs.nix-clipboard-history.enable = true;
+                  programs.nix-clipboard-history = {
+                    enable = true;
+                    settings.appearance = {
+                      theme = "light";
+                      accent_color = "#0f766e";
+                      density = "compact";
+                    };
+                    extraCss = "@define-color clipboard_bg #f8f9fc;";
+                  };
                 }
               ];
             };
@@ -78,6 +86,10 @@
             assert nixpkgs.lib.hasInfix (
               if configType == "lua" then "SUPER + SHIFT + V" else "SUPER SHIFT, V"
             ) generated;
+            assert home.config.programs.nix-clipboard-history.settings.appearance.theme == "light";
+            assert
+              home.config.xdg.configFile."nix-clipboard-history/style.css".text
+              == "@define-color clipboard_bg #f8f9fc;";
             pkgs.writeText "clipboard-home-manager-${configType}-check" (
               builtins.toJSON {
                 service = home.config.systemd.user.services.nix-clipboard-history;
