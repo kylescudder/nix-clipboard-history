@@ -2,7 +2,8 @@ window.clipboard-window { background: transparent; color: #e7e9ef; font-family: 
 .clipboard-window label, .clipboard-window button, .clipboard-window entry { font-family: "Inter", "Noto Sans", "DejaVu Sans", sans-serif; }
 .shell { background: #17191f; border: 1px solid #353842; border-radius: 18px; box-shadow: 0 14px 48px alpha(black, 0.35); }
 .header { padding: 22px 22px 18px; }
-.brand-icon { color: #a4b7ff; background: #282f49; padding: 12px; border-radius: 13px; }
+.brand-icon { background: #252d46; border-radius: 13px; }
+.empty-logo { opacity: 0.65; }
 .heading { font-size: 19px; font-weight: 700; letter-spacing: -0.5px; }
 .muted { color: #8f95a6; font-size: 11px; }
 button { background-image: none; box-shadow: none; text-shadow: none; border: none; outline: none; }

@@ -18,7 +18,7 @@ nix-clipboard-history = "nix_clipboard_history.cli:main"
 include = ["nix_clipboard_history*"]
 
 [tool.setuptools.package-data]
-nix_clipboard_history = ["style.css"]
+nix_clipboard_history = ["style.css", "logo.svg"]
 
 [tool.ruff]
 target-version = "py39"

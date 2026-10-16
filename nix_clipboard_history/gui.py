@@ -72,6 +72,14 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
         widget.connect("clicked", callback)
         return widget
 
+    def brand_mark(size: int):
+        file = Gio.File.new_for_path(str(Path(__file__).with_name("logo.svg")))
+        widget = Gtk.Image.new_from_gicon(Gio.FileIcon.new(file))
+        widget.set_pixel_size(size)
+        widget.set_accessible_role(Gtk.AccessibleRole.IMG)
+        widget.update_property([Gtk.AccessibleProperty.LABEL], ["Clipboard History"])
+        return widget
+
     class Popup(Gtk.ApplicationWindow):
         def __init__(self, app):
             super().__init__(application=app, title="Clipboard History")
@@ -117,9 +125,8 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
             self.set_child(root)
             header = Gtk.Box(spacing=12)
             header.add_css_class("header")
-            logo = Gtk.Image.new_from_icon_name("edit-paste-symbolic")
+            logo = brand_mark(44)
             logo.add_css_class("brand-icon")
-            logo.set_pixel_size(20)
             header.append(logo)
             heading = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
             heading.append(label("Clipboard", "heading"))
@@ -183,9 +190,8 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
                 valign=Gtk.Align.CENTER,
                 halign=Gtk.Align.CENTER,
             )
-            empty_icon = Gtk.Image.new_from_icon_name("edit-paste-symbolic")
-            empty_icon.set_pixel_size(40)
-            empty_icon.add_css_class("muted")
+            empty_icon = brand_mark(64)
+            empty_icon.add_css_class("empty-logo")
             empty.append(empty_icon)
             self.empty_title = label("Your clipboard starts here", "empty-title")
             self.empty_hint = label(
