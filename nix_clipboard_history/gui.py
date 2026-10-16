@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import sys
 import threading
 import time
 from datetime import datetime
@@ -11,6 +12,7 @@ from pathlib import Path
 
 from .config import Config
 from .store import Entry, Store
+from .theme import custom_css_path, stylesheet
 from .wayland import active_window, copy, focused_monitor, paste, restore_focus
 
 
@@ -80,6 +82,43 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
         widget.update_property([Gtk.AccessibleProperty.LABEL], ["Clipboard History"])
         return widget
 
+    def load_style(display):
+        base = stylesheet(config.appearance)
+        path = custom_css_path()
+        custom = ""
+        try:
+            custom = path.read_text()
+        except FileNotFoundError:
+            pass
+        except (OSError, UnicodeError) as error:
+            print(f"nix-clipboard-history: Cannot read {path}: {error}", file=sys.stderr)
+
+        def parse(css):
+            provider = Gtk.CssProvider()
+            errors = []
+
+            def parsing_error(_provider, section, error):
+                if error.domain == GLib.quark_to_string(Gtk.css_parser_error_quark()):
+                    errors.append(f"{section.to_string()}: {error.message}")
+
+            provider.connect("parsing-error", parsing_error)
+            provider.load_from_data(css.encode("utf-8"))
+            return provider, errors
+
+        provider, errors = parse(base + "\n" + custom)
+        if errors and custom:
+            print(
+                f"nix-clipboard-history: Ignoring invalid CSS in {path}: {'; '.join(errors)}",
+                file=sys.stderr,
+            )
+            provider, errors = parse(base)
+        if errors:
+            raise RuntimeError(f"Cannot load the popup theme: {'; '.join(errors)}")
+        Gtk.StyleContext.add_provider_for_display(
+            display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+        return provider
+
     class Popup(Gtk.ApplicationWindow):
         def __init__(self, app):
             super().__init__(application=app, title="Clipboard History")
@@ -102,14 +141,12 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
             display = Gdk.Display.get_default()
             if display is None:
                 raise RuntimeError("No graphical display is available")
-            provider = Gtk.CssProvider()
-            provider.load_from_path(str(Path(__file__).with_name("style.css")))
-            Gtk.StyleContext.add_provider_for_display(
-                display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-            )
+            self.css_provider = load_style(display)
             settings = Gtk.Settings.get_default()
-            settings.set_property("gtk-application-prefer-dark-theme", True)
-            width, height = 880, 640
+            settings.set_property(
+                "gtk-application-prefer-dark-theme", config.appearance.theme == "dark"
+            )
+            width, height = config.appearance.window_width, config.appearance.window_height
             monitors = display.get_monitors()
             monitor = monitors.get_item(0) if monitors.get_n_items() else None
             if layer and monitors.get_n_items() > 1:
@@ -129,6 +166,7 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
             root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             self.panel = root
             root.add_css_class("shell")
+            root.add_css_class(config.appearance.density)
             if layer:
                 # A layer surface owns no input outside its bounds. Fill the output
                 # transparently so clicks around the centered panel can dismiss it.
@@ -234,6 +272,8 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
 
             preview = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
             preview.add_css_class("preview")
+            preview.set_visible(config.appearance.show_preview)
+            self.preview = preview
             content.append(preview)
             preview.append(label("PREVIEW", "eyebrow"))
             self.preview_stack = Gtk.Stack(vexpand=True)
@@ -346,6 +386,7 @@ def run(config: Config, copy_only: bool = False, windowed: bool = False) -> int:
                     GLib.source_remove(timer)
             for shield in self.shields:
                 shield.destroy()
+            Gtk.StyleContext.remove_provider_for_display(self.get_display(), self.css_provider)
             self.store.close()
             return False
 

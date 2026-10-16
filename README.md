@@ -11,6 +11,7 @@ an older copy into the app you were using.
 - Pin frequently used items. Repeated copies move up without creating duplicates.
 - Automatic paste, including Ctrl+Shift+V for terminal applications.
 - Copy without pasting, pause recording, delete individual items, or clear history.
+- Dark and light themes, custom colours and fonts, compact layout, and GTK CSS overrides.
 - A Nix flake, desktop launcher, and Home Manager module with a session service.
 
 Requires Linux, a running Hyprland session, and Nix with flakes enabled. Packages
@@ -108,6 +109,11 @@ is embedded in NixOS):
       retention_days = 30;
       auto_paste = true;
       excluded_apps = [ "1Password" "org.keepassxc.KeePassXC" ];
+      appearance = {
+        theme = "dark"; # or "light"
+        accent_color = "#a6e3a1";
+        density = "compact";
+      };
     };
     # hyprland.shortcut = "SUPER ALT, V"; # optional override
   };
@@ -204,8 +210,88 @@ Alacritty, foot, WezTerm, Ghostty, GNOME Terminal/Console, Konsole, Black Box,
 xterm, and st. Use `hyprctl -j activewindow` to find an app's class. A terminal
 using different paste keys can use copy-only mode.
 
-Restart the capture service after changing settings. Reopen the popup to reload
-its settings.
+Restart the capture service after changing capture settings. Reopen the popup to
+reload its settings; appearance changes only require reopening the popup.
+
+### Themes and appearance
+
+Add an `appearance` object to `config.json`, or set `settings.appearance` in
+Home Manager. Omitted fields keep their defaults, so existing configurations
+keep the dark theme and original layout. For example:
+
+```json
+{
+  "appearance": {
+    "theme": "light",
+    "accent_color": "#0f766e",
+    "font_family": "Noto Sans",
+    "monospace_font_family": "Fira Code",
+    "font_size": 14,
+    "density": "compact",
+    "border_radius": 12,
+    "window_width": 960,
+    "window_height": 680,
+    "show_preview": true
+  }
+}
+```
+
+| Setting | Default | Accepted values |
+| --- | --- | --- |
+| `theme` | `"dark"` | `"dark"` or `"light"` |
+| `accent_color` | `""` | `""` for the theme default, or `"#RRGGBB"` |
+| `font_family` | `"Inter"` | A single installed font family name |
+| `monospace_font_family` | `"JetBrains Mono"` | A single installed preview font family name |
+| `font_size` | `13` | Base font size in pixels, 10–24; scales all popup text |
+| `density` | `"comfortable"` | `"comfortable"` or `"compact"` |
+| `border_radius` | `18` | Popup corner radius in pixels, 0–32 |
+| `window_width` | `880` | Requested popup width in logical pixels, 600–1600 |
+| `window_height` | `640` | Requested popup height in logical pixels, 400–1200 |
+| `show_preview` | `true` | `false` gives the history list the full content width |
+
+The accent colour applies to buttons, selected items, tabs, and focus outlines.
+Button text automatically uses a contrasting black or white colour. Fonts fall
+back to Noto Sans/DejaVu Sans and DejaVu Sans Mono when the requested font is
+unavailable. Popup dimensions are constrained by the active monitor and GTK's
+minimum content size; larger fonts may need a wider or taller popup.
+
+For a complete custom theme, create
+`$XDG_CONFIG_HOME/nix-clipboard-history/style.css`
+(`~/.config/nix-clipboard-history/style.css` by default). It uses GTK4 CSS and
+loads after the built-in theme and appearance settings. You can override named
+colours or widget styles:
+
+```css
+@define-color clipboard_bg #1e1e2e;
+@define-color clipboard_preview_bg #181825;
+@define-color clipboard_fg #cdd6f4;
+@define-color clipboard_muted #a6adc8;
+@define-color clipboard_border #45475a;
+
+.clipboard-window .shell { box-shadow: none; }
+.clipboard-window .history-row { border-radius: 4px; }
+```
+
+Other palette names are `clipboard_subtle`, `clipboard_divider`,
+`clipboard_input_bg`, `clipboard_hover_bg`, `clipboard_icon_bg`,
+`clipboard_scrollbar`, `clipboard_accent`, `clipboard_accent_fg`,
+`clipboard_danger`, and `clipboard_danger_bg`. When replacing the accent in CSS,
+set its foreground colour too. Useful widget classes include `.header`,
+`.search-box`, `.filter`, `.history-row`, `.item-title`, `.item-meta`, `.preview`,
+`.text-preview`, `.footer`, and `.primary`.
+
+Home Manager can write this file declaratively:
+
+```nix
+programs.nix-clipboard-history.extraCss = ''
+  @define-color clipboard_bg #1e1e2e;
+  @define-color clipboard_preview_bg #181825;
+  .clipboard-window .shell { box-shadow: none; }
+'';
+```
+
+Reopen the popup after editing your theme. Unreadable or invalid custom CSS
+reports a warning on stderr and falls back to the built-in appearance settings.
 
 ## Storage and privacy
 
@@ -277,8 +363,9 @@ bash tests/run-gtk-smoke.sh
 env PYTHONPATH=. python tests/wayland_smoke.py
 ```
 
-The GTK smoke test exercises the real widget tree under Xvfb and writes a
-screenshot to `artifacts/clipboard.png`. Its clipboard transfer is stubbed. The
+The GTK smoke test exercises the real widget tree under Xvfb with the default,
+light, compact, custom, and invalid-CSS fallback styles. It writes screenshots
+to `artifacts/clipboard*.png`. Its clipboard transfer is stubbed. The
 Wayland smoke test uses an isolated headless Sway session to check real
 text/image capture, clipboard ownership, sensitive hints, daemon lifecycle,
 and the GTK layer-shell overlay. Real pointer and keyboard events verify outside

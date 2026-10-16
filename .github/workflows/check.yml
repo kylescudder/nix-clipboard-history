@@ -22,4 +22,4 @@ jobs:
         if: always()
         with:
           name: gtk-screenshot
-          path: artifacts/clipboard.png
+          path: artifacts/clipboard*.png
