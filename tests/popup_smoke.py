@@ -117,7 +117,9 @@ def ipc(args, **kwargs):
         assert "hl.dsp.send_shortcut(" in args[-1], args
         if mode == "paste-error":
             return subprocess.CompletedProcess(args, 1, b"test dispatch failure")
-        original_run(["wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl"], check=True, timeout=3)
+        original_run(
+            ["wtype", "-s", "100", "-M", "ctrl", "-k", "v", "-m", "ctrl"], check=True, timeout=3
+        )
     return subprocess.CompletedProcess(args, 0, b"ok\n")
 
 
@@ -166,25 +168,29 @@ def controller():
             original_run(["wlrctl", "pointer", "move", "1", "1"], check=True, timeout=3)
             original_run(["wlrctl", "pointer", "click", "left"], check=True, timeout=3)
         elif mode == "escape":
-            original_run(["wtype", "-k", "Escape"], check=True, timeout=3)
+            original_run(["wtype", "-s", "100", "-k", "Escape"], check=True, timeout=3)
         elif mode == "cancel-copy":
-            original_run(["wtype", "-k", "Return"], check=True, timeout=3)
+            original_run(["wtype", "-s", "100", "-k", "Return"], check=True, timeout=3)
             assert copy_started.wait(3)
             sway("seat seat0 cursor set 5 5")
             original_run(["wlrctl", "pointer", "move", "1", "1"], check=True, timeout=3)
             original_run(["wlrctl", "pointer", "click", "left"], check=True, timeout=3)
         elif mode == "alt-select":
-            keys = subprocess.Popen(["wtype", "-M", "alt", "-k", "2", "-s", "400", "-m", "alt"])
+            keys = subprocess.Popen(
+                ["wtype", "-s", "100", "-M", "alt", "-k", "2", "-s", "400", "-m", "alt"]
+            )
             time.sleep(0.2)
             assert not popup.closed, "Popup released focus before Alt was released"
             assert keys.wait(timeout=3) == 0
         elif mode == "copy-only":
             original_run(
-                ["wtype", "-M", "ctrl", "-k", "Return", "-m", "ctrl"], check=True, timeout=3
+                ["wtype", "-s", "100", "-M", "ctrl", "-k", "Return", "-m", "ctrl"],
+                check=True,
+                timeout=3,
             )
         else:
             keys = subprocess.Popen(
-                ["wtype", "-k", "Down", "-P", "Return", "-s", "400", "-p", "Return"]
+                ["wtype", "-s", "100", "-k", "Down", "-P", "Return", "-s", "400", "-p", "Return"]
             )
             time.sleep(0.2)
             assert not popup.closed, "Selection should wait for Enter release"
@@ -222,9 +228,17 @@ try:
             assert not popup.get_application(), "Late copy callback reopened the popup"
     assert done.wait(5) and not errors, "\n".join(errors)
     if mode in ("enter", "alt-select"):
-        wait_for(
-            lambda: state.read_text() == "selected older note", "text pasted into previous input"
-        )
+        try:
+            wait_for(
+                lambda: state.read_text() == "selected older note",
+                "text pasted into previous input",
+            )
+        except AssertionError as error:
+            clipboard = original_run(["wl-paste", "--no-newline"], capture_output=True, timeout=3)
+            raise AssertionError(
+                f"{error}; input={state.read_text()!r}; clipboard={clipboard.stdout!r}; "
+                f"dispatches={commands}"
+            ) from error
         assert len(commands) == 2
         if mode == "enter":
             time.sleep(0.15)

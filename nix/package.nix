@@ -8,6 +8,10 @@
   wl-clipboard,
   hyprland,
   adwaita-icon-theme,
+  pkg-config,
+  wayland,
+  wayland-scanner,
+  wlr-protocols,
 }:
 
 python3Packages.buildPythonApplication {
@@ -35,12 +39,20 @@ python3Packages.buildPythonApplication {
   nativeBuildInputs = [
     gobject-introspection
     wrapGAppsHook4
+    pkg-config
+    wayland-scanner
   ];
   buildInputs = [
     gtk4
     gtk4-layer-shell
     adwaita-icon-theme
+    wayland
   ];
+
+  preBuild = ''
+    export WLR_DATA_CONTROL_PROTOCOL=${wlr-protocols}/share/wlr-protocols/unstable/wlr-data-control-unstable-v1.xml
+    bash native/build.sh build/native
+  '';
 
   # The Python wrapper also carries GI typelibs, GTK data, and the native library path.
   dontWrapGApps = true;
@@ -54,10 +66,12 @@ python3Packages.buildPythonApplication {
         ]
       }
       --set NIX_CLIPBOARD_LAYER_SHELL ${gtk4-layer-shell}/lib/libgtk4-layer-shell.so.0
+      --set NIX_CLIPBOARD_WATCHER "$out/libexec/nix-clipboard-history-watch"
     )
   '';
 
   postInstall = ''
+    install -Dm755 build/native/nix-clipboard-history-watch $out/libexec/nix-clipboard-history-watch
     install -Dm644 data/io.github.kylescudder.NixClipboardHistory.desktop \
       $out/share/applications/io.github.kylescudder.NixClipboardHistory.desktop
     install -Dm644 assets/icon.svg \

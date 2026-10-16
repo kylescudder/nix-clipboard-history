@@ -18,6 +18,13 @@ def capture(config: Config, kind: str) -> int:
 
     if os.environ.get("CLIPBOARD_STATE", "data") != "data":
         return 0
+    if kind == "auto":
+        from .daemon import capture_types
+
+        mime = os.environ.get("CLIPBOARD_TYPE", "")
+        if mime not in capture_types(config):
+            return 0
+        kind = "image" if mime.startswith("image/") else "text"
     with Store(config=config) as store:
         if store.paused:
             return 0
@@ -42,7 +49,7 @@ def parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("daemon", help="Watch the Wayland clipboard; run once per session")
     ingest = commands.add_parser("capture", help="Read one item from stdin (used by the watcher)")
-    ingest.add_argument("--kind", choices=["text", "image"], default="text")
+    ingest.add_argument("--kind", choices=["text", "image", "auto"], default="text")
     listing = commands.add_parser("list", help="List history metadata as JSON; content is omitted")
     listing.add_argument("query", nargs="?", default="")
     listing.add_argument("--kind", choices=["all", "text", "image", "pinned"], default="all")

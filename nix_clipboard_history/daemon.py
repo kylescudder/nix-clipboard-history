@@ -1,4 +1,4 @@
-"""Supervise independent text/image data-control watchers under one service."""
+"""Supervise one watcher that requests one supported MIME per clipboard offer."""
 
 from __future__ import annotations
 
@@ -11,6 +11,13 @@ import threading
 
 from .config import Config
 from .store import Store
+
+IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp", "image/gif", "image/tiff", "image/bmp")
+TEXT_TYPES = ("text/plain;charset=utf-8", "text/plain;charset=UTF-8", "text/plain", "UTF8_STRING")
+
+
+def capture_types(config: Config) -> tuple[str, ...]:
+    return (IMAGE_TYPES if config.capture_images else ()) + TEXT_TYPES
 
 
 def run(config: Config) -> int:
@@ -32,24 +39,22 @@ def run(config: Config) -> int:
                 previous[sig] = signal.signal(sig, lambda *_args: stop.set())
             watchers = []
             try:
-                for kind in ["text", "image"] if config.capture_images else ["text"]:
-                    watchers.append(
-                        subprocess.Popen(
-                            [
-                                "wl-paste",
-                                "--type",
-                                kind,
-                                "--watch",
-                                sys.executable,
-                                "-m",
-                                "nix_clipboard_history",
-                                "capture",
-                                "--kind",
-                                kind,
-                            ],
-                            start_new_session=True,
-                        )
+                watchers.append(
+                    subprocess.Popen(
+                        [
+                            os.environ.get("NIX_CLIPBOARD_WATCHER", "nix-clipboard-history-watch"),
+                            *capture_types(config),
+                            "--",
+                            sys.executable,
+                            "-m",
+                            "nix_clipboard_history",
+                            "capture",
+                            "--kind",
+                            "auto",
+                        ],
+                        start_new_session=True,
                     )
+                )
                 store.prune()
                 ticks = 0
                 while not stop.wait(0.5):

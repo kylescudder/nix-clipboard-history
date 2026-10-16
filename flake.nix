@@ -129,6 +129,7 @@
             shellHook = ''
               export NIX_CLIPBOARD_LAYER_SHELL=${pkgs.gtk4-layer-shell}/lib/libgtk4-layer-shell.so.0
               export WLR_POINTER_PROTOCOL=${pkgs.wlr-protocols}/share/wlr-protocols/unstable/wlr-virtual-pointer-unstable-v1.xml
+              export WLR_DATA_CONTROL_PROTOCOL=${pkgs.wlr-protocols}/share/wlr-protocols/unstable/wlr-data-control-unstable-v1.xml
               export FONTCONFIG_FILE=${pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; }}
               export DBUS_SESSION_CONFIG=${pkgs.dbus}/share/dbus-1/session.conf
               export XDG_DATA_DIRS=${pkgs.adwaita-icon-theme}/share:${pkgs.gtk4}/share:''${XDG_DATA_DIRS:-/usr/local/share:/usr/share}

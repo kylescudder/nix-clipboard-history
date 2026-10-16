@@ -214,9 +214,10 @@ History stays on this machine in
 (`~/.local/share/nix-clipboard-history/` by default). The directory is mode `0700`
 and the database and journal files are `0600`. **History is not encrypted.**
 
-Capture ignores `CLIPBOARD_STATE=sensitive`, `nil`, and `clear`, as supplied by
-[wl-clipboard](https://github.com/bugaevc/wl-clipboard). Password managers must
-actually mark their copies as sensitive for that protection to apply.
+The native watcher skips offers carrying `x-kde-passwordManagerHint` before
+requesting their contents. The capture helper also ignores
+`CLIPBOARD_STATE=sensitive`, `nil`, and `clear`. Password managers must actually
+mark their copies as sensitive for that protection to apply.
 `excluded_apps` matches Hyprland's focused application class, case-insensitively;
 Wayland does not provide reliable clipboard-owner attribution, so this is a
 best-effort extra filter. Pause recording before copying anything you do not
@@ -225,6 +226,10 @@ backups or storage media.
 
 Text is stored and pasted as UTF-8 plain text, preserving whitespace. PNG, JPEG,
 GIF, WebP, TIFF, and BMP images preserve their original bytes and MIME type.
+Each clipboard offer produces at most one record. Capture prefers an available
+supported image (PNG, JPEG, WebP, GIF, TIFF, then BMP), then UTF-8/plain text.
+Unsupported image formats never mask a supported alternative. With
+`capture_images = false`, mixed offers use their text representation instead.
 Image previews depend on the installed GdkPixbuf loaders. Rich formatting, file
 offers, primary-selection history, and OCR are outside the current feature set.
 
@@ -246,7 +251,7 @@ journalctl --user -u nix-clipboard-history -e
 
 If capture is offline, check the service logs and confirm that
 `WAYLAND_DISPLAY` and `HYPRLAND_INSTANCE_SIGNATURE` are in the service's
-environment. The watcher requires a compositor with Wayland data-control;
+environment. The watcher requires a compositor with wlr data-control;
 Hyprland supplies it. Another clipboard manager can record the same copies, so
 disable its recording service if you intend this app to own your history.
 
@@ -280,8 +285,11 @@ and the GTK layer-shell overlay. Real pointer and keyboard events verify outside
 clicks on both monitors, arrow-key selection followed by Enter, Alt quick
 selection, and copy-only behavior. A separate GTK text input receives the pasted
 text; Hyprland IPC is adapted to Sway for this integration test.
+Multi-format clipboard checks verify one record per offer, SVG-before-PNG
+selection, image priority, text fallback, sensitive hints, and disabled images.
 Automatic paste should also be verified in a live Hyprland session.
 `show --windowed` opens a regular window for UI development.
 
-Built with Python, GTK4, [gtk4-layer-shell](https://github.com/wmww/gtk4-layer-shell),
-wl-clipboard, and SQLite. MIT licensed.
+Built with Python, a small native Wayland watcher, GTK4,
+[gtk4-layer-shell](https://github.com/wmww/gtk4-layer-shell), wl-clipboard, and SQLite.
+MIT licensed. The Nix package builds and installs the watcher automatically.

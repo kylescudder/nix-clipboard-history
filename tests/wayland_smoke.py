@@ -5,6 +5,7 @@ Hyprland IPC syntax has unit coverage; popup regressions adapt its dispatches to
 """
 
 import base64
+import json
 import os
 import shlex
 import signal
@@ -25,6 +26,52 @@ def wait_for(check, description, timeout=10):
             return
         time.sleep(0.05)
     raise AssertionError(f"Timed out waiting for {description}")
+
+
+def check_offer(store, root, name, offers, expected):
+    """Publish distinct representations in one actual GTK clipboard offer."""
+    ready = root / f"{name}-ready"
+    specification = json.dumps([(mime, base64.b64encode(data).decode()) for mime, data in offers])
+    with (root / f"{name}.log").open("w+") as log:
+        owner = subprocess.Popen(
+            [sys.executable, "tests/multi_offer.py", specification, str(ready)],
+            stdout=log,
+            stderr=log,
+        )
+        try:
+            wait_for(lambda: Path(str(ready) + ".mapped").exists(), f"{name} source window")
+            # Let any preceding clipboard transfer finish before isolating this offer.
+            store.clear(include_pinned=True)
+            # A regular GTK source needs a genuine input serial to own selection.
+            subprocess.run(["wtype", "-s", "100", "-k", "F12"], check=True, timeout=3)
+            wait_for(ready.exists, f"{name} clipboard offer")
+            actual_types = (
+                subprocess.check_output(["wl-paste", "--list-types"], timeout=3)
+                .decode()
+                .splitlines()
+            )
+            assert all(mime in actual_types for mime, _data in offers), actual_types
+            if name == "svg-before-png":
+                assert actual_types.index("image/svg+xml") < actual_types.index("image/png"), (
+                    actual_types
+                )
+            if expected is not None:
+                wait_for(lambda: bool(store.list()), f"{name} capture")
+            time.sleep(0.3)
+            entries = store.list()
+            if expected is None:
+                assert not entries, f"{name}: unexpected history entry"
+            else:
+                assert len(entries) == 1, f"{name}: one offer produced {entries}"
+                assert store.get(entries[0].id) == expected, (name, entries)
+            print(f"MIME regression passed: {name}")
+        except BaseException:
+            log.seek(0)
+            print(log.read(), file=sys.stderr)
+            raise
+        finally:
+            owner.terminate()
+            owner.wait(timeout=3)
 
 
 def main():
@@ -52,6 +99,8 @@ def main():
         )
         os.environ.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
         os.environ.pop("WAYLAND_DISPLAY", None)
+        subprocess.run(["bash", "native/build.sh", str(root / "native")], check=True)
+        os.environ["NIX_CLIPBOARD_WATCHER"] = str(root / "native/nix-clipboard-history-watch")
         configuration = root / "sway.conf"
         configuration.write_text(
             "seat seat0 fallback true\nxwayland disable\n"
@@ -104,7 +153,7 @@ def main():
             daemon = subprocess.Popen([sys.executable, "-m", "nix_clipboard_history", "daemon"])
             with Store() as store:
                 wait_for(store.daemon_running, "capture service")
-                # Allow the watchers to bind data-control before testing a selection.
+                # Allow the watcher to bind data-control before testing a selection.
                 time.sleep(0.3)
                 text = "Clipboard history\nwith whitespace 🙂\n".encode()
                 copy(text, "text/plain;charset=utf-8")
@@ -156,6 +205,61 @@ def main():
                     ).stdout
                     == b"resumed"
                 )
+                store.set_paused(False)
+                svg = b'<svg xmlns="http://www.w3.org/2000/svg"/>'
+                check_offer(
+                    store,
+                    root,
+                    "mixed-text-image",
+                    [
+                        ("text/plain", b"image description"),
+                        ("image/png", image),
+                    ],
+                    (image, "image/png"),
+                )
+                check_offer(
+                    store,
+                    root,
+                    "svg-before-png",
+                    [
+                        ("image/svg+xml", svg),
+                        ("image/png", image),
+                    ],
+                    (image, "image/png"),
+                )
+                gif = base64.b64decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
+                check_offer(
+                    store,
+                    root,
+                    "png-preferred-over-gif",
+                    [
+                        ("image/gif", gif),
+                        ("image/png", image),
+                    ],
+                    (image, "image/png"),
+                )
+                check_offer(
+                    store,
+                    root,
+                    "unsupported-image-text-fallback",
+                    [
+                        ("image/svg+xml", svg),
+                        ("text/plain", b"plain text fallback"),
+                    ],
+                    (b"plain text fallback", "text/plain;charset=utf-8"),
+                )
+                check_offer(store, root, "unsupported-image-only", [("image/svg+xml", svg)], None)
+                check_offer(
+                    store,
+                    root,
+                    "sensitive-multi-format",
+                    [
+                        ("image/png", image),
+                        ("text/plain", b"sensitive"),
+                        ("x-kde-passwordManagerHint", b"secret"),
+                    ],
+                    None,
+                )
                 store.clear(include_pinned=True)
                 store.add(b"selected older note", "text", "test")
                 store.add(b"latest note", "text", "test")
@@ -191,6 +295,26 @@ def main():
                 daemon.send_signal(signal.SIGTERM)
                 assert daemon.wait(timeout=5) == 0
                 assert not store.daemon_running()
+                store.set_paused(False)
+                settings = root / "config/nix-clipboard-history/config.json"
+                settings.parent.mkdir(parents=True, exist_ok=True)
+                settings.write_text('{"capture_images":false}')
+                daemon = subprocess.Popen([sys.executable, "-m", "nix_clipboard_history", "daemon"])
+                wait_for(store.daemon_running, "text-only service")
+                time.sleep(0.3)
+                check_offer(
+                    store,
+                    root,
+                    "images-disabled-text-fallback",
+                    [
+                        ("image/png", image),
+                        ("text/plain", b"text when images disabled"),
+                    ],
+                    (b"text when images disabled", "text/plain;charset=utf-8"),
+                )
+                check_offer(store, root, "images-disabled-image-only", [("image/png", image)], None)
+                daemon.send_signal(signal.SIGTERM)
+                assert daemon.wait(timeout=5) == 0 and not store.daemon_running()
             print(
                 "Wayland smoke passed: real text/image capture, ownership, sensitive hints, "
                 "pause/resume, deduplication, and daemon shutdown."

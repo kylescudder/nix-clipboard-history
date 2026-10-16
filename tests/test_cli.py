@@ -46,6 +46,70 @@ class CliTests(unittest.TestCase):
             )
         self.assertEqual(json.loads(self.cli("list").stdout), [])
 
+    def test_auto_capture_uses_the_selected_image_mime(self):
+        result = self.cli(
+            "capture",
+            "--kind",
+            "auto",
+            data=b"\x89PNG\r\n\x1a\nimage",
+            CLIPBOARD_TYPE="image/png",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        entries = json.loads(self.cli("list").stdout)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["kind"], "image")
+        self.assertEqual(entries[0]["mime_type"], "image/png")
+
+    def test_auto_capture_preserves_plain_text(self):
+        result = self.cli(
+            "capture",
+            "--kind",
+            "auto",
+            data=b"one\ntwo\n",
+            CLIPBOARD_TYPE="text/plain;charset=utf-8",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        entries = json.loads(self.cli("list").stdout)
+        self.assertEqual([entry["kind"] for entry in entries], ["text"])
+
+    def test_auto_capture_rejects_missing_unsupported_and_sensitive_types(self):
+        for mime in ("", "image/svg+xml", "text/html", "application/octet-stream"):
+            self.assertEqual(
+                self.cli(
+                    "capture",
+                    "--kind",
+                    "auto",
+                    data=b"do not capture",
+                    CLIPBOARD_TYPE=mime,
+                ).returncode,
+                0,
+            )
+        self.cli(
+            "capture",
+            "--kind",
+            "auto",
+            data=b"sensitive",
+            CLIPBOARD_TYPE="text/plain",
+            CLIPBOARD_STATE="sensitive",
+        )
+        self.assertEqual(json.loads(self.cli("list").stdout), [])
+
+    def test_auto_capture_respects_disabled_images(self):
+        directory = Path(self.temp.name) / "nix-clipboard-history"
+        directory.mkdir()
+        (directory / "config.json").write_text('{"capture_images":false}')
+        self.assertEqual(
+            self.cli(
+                "capture",
+                "--kind",
+                "auto",
+                data=b"\x89PNG\r\n\x1a\nimage",
+                CLIPBOARD_TYPE="image/png",
+            ).returncode,
+            0,
+        )
+        self.assertEqual(json.loads(self.cli("list").stdout), [])
+
     def test_pause_and_resume_apply_to_new_capture_processes(self):
         self.cli("pause")
         self.cli("capture", data=b"not stored")
