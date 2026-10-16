@@ -61,12 +61,28 @@ def paste(target: Target, config: Config):
         raise RuntimeError("Copied; the focused window changed. Paste manually with Ctrl+V.")
     terminal = target.app_class.casefold() in {name.casefold() for name in config.terminal_classes}
     modifiers = "CTRL SHIFT" if terminal else "CTRL"
+    shortcut = (
+        f"hl.dsp.send_shortcut({{mods={json.dumps(modifiers)}, "
+        f'key="V", window={json.dumps("address:" + target.address)}}})'
+    )
     try:
         result = subprocess.run(
-            ["hyprctl", "dispatch", "sendshortcut", f"{modifiers},V,address:{target.address}"],
+            ["hyprctl", "dispatch", shortcut],
             capture_output=True,
             timeout=3,
         )
+        # A legacy parser rejects the Lua dispatcher before executing any shortcut.
+        # Retry only that explicit rejection, never an ambiguous failure or timeout.
+        if result.stdout.strip() == b"Invalid dispatcher":
+            if active_window().address != target.address:
+                raise RuntimeError(
+                    "Copied; the focused window changed. Paste manually with Ctrl+V."
+                )
+            result = subprocess.run(
+                ["hyprctl", "dispatch", "sendshortcut", f"{modifiers},V,address:{target.address}"],
+                capture_output=True,
+                timeout=3,
+            )
     except (OSError, subprocess.SubprocessError) as error:
         raise RuntimeError(
             "Copied, but Hyprland did not respond. Paste manually with Ctrl+V."

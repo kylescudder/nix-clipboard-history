@@ -26,11 +26,20 @@ nix build path:.
 ```
 
 Leave it running. In a second terminal, from the same checkout, add a shortcut
-for the current session:
+for the current session. For a Lua configuration (`hyprland.lua`):
+
+```sh
+hyprctl eval "hl.bind('SUPER + SHIFT + V', hl.dsp.exec_cmd('$(realpath result)/bin/nix-clipboard-history show'))"
+```
+
+For a legacy configuration (`hyprland.conf`):
 
 ```sh
 hyprctl keyword bind "SUPER SHIFT, V, exec, $(realpath result)/bin/nix-clipboard-history show"
 ```
+
+If `hyprctl keyword` reports `keyword can't work with non-legacy parsers. Use eval.`,
+use the Lua command above. See Hyprland's [runtime configuration documentation](https://wiki.hypr.land/configuring/core/advanced-configuration/using-hyprctl/#eval).
 
 Copy two different pieces of text, focus a text field in another app, then press
 **Super+Shift+V**, choose the older item, and press **Enter**. It should paste
